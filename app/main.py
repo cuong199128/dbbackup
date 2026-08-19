@@ -13,7 +13,7 @@ from app.core.single_instance import SingleInstanceGuard
 from app.gui.main_window import MainWindow
 from app.gui.tray import TrayIcon
 from app.gui.icons import app_icon
-from app.logger import setup_logging, get_logger
+from app.logger import setup_logging, get_logger, install_excepthook
 
 
 class _SchedulerBridge(QObject):
@@ -29,6 +29,7 @@ def main() -> int:
     background = "--background" in sys.argv  # start minimized to tray (used by autostart)
 
     setup_logging()
+    install_excepthook()
     log = get_logger("main")
     log.info("Starting Database Backup Manager (background=%s)", background)
 
