@@ -192,3 +192,20 @@ Qt (không cần thư viện thêm, hoạt động giống nhau trên Windows v�
 - Có xử lý trường hợp hiếm trên Linux: tiến trình trước bị `kill -9` để sót
   shared memory/socket → lần khởi động sau tự phát hiện (ping IPC không có
   phản hồi) và dọn rác thay vì bị kẹt vĩnh viễn không mở lại được app.
+
+## Lỡ lịch backup vì máy tắt/ngủ
+
+Có tự động backup bù khi mở máy lại. Chi tiết:
+
+- APScheduler (thư viện lịch nền) chỉ tự "bắt kịp" một lượt bị lỡ nếu app
+  được mở lại trong vòng 1 giờ (`misfire_grace_time`) sau giờ đáng lẽ chạy —
+  quá thời gian đó nó tự huỷ, không backup bù, phải đợi lịch kế tiếp.
+- Vì máy cá nhân thường tắt lâu hơn 1 giờ (qua đêm, vài ngày...),
+  `BackupScheduler.catch_up_missed_backups()` chạy một lần ngay khi app mở
+  lên: với mỗi database đang bật, tính mốc lịch cron gần nhất đáng lẽ đã
+  chạy trong 14 ngày gần đây; nếu mốc đó muộn hơn lần backup thành công gần
+  nhất (hoặc chưa từng backup) thì coi là bị lỡ và chạy bù ngay.
+- Chạy bù vẫn tuân thủ nguyên tắc "chỉ backup khi có thay đổi": nếu
+  database không đổi gì trong lúc máy tắt, chỉ ghi nhận là bỏ qua (skip),
+  không tải file thừa lên Drive.
+- Chạy trong thread nền nên không làm chậm lúc khởi động app.

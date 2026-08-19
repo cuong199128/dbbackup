@@ -76,6 +76,7 @@ def main() -> int:
 
     scheduler.set_on_run_callback(_on_run)
     scheduler.start()
+    scheduler.catch_up_missed_backups()  # bù các lượt backup bị lỡ trong lúc máy tắt/ngủ
 
     if not background:
         window.show()
