@@ -1,0 +1,60 @@
+# Bỏ qua tất cả
+*
+
+# Cho phép duyệt vào các thư mục con
+!*/
+
+# Theo dõi mã nguồn Python
+!*.py
+
+# Theo dõi các file khai báo dependency / cấu hình dự án
+!requirements.txt
+!requirements*.txt
+!pyproject.toml
+!setup.py
+!setup.cfg
+!Pipfile
+!Pipfile.lock
+!poetry.lock
+
+# Theo dõi file cấu hình / biến môi trường mẫu
+!*.cfg
+!*.ini
+!*.toml
+!*.yaml
+!*.yml
+!*.json
+!.env.example
+!*.ico
+!*.png
+!*.svg
+
+# Theo dõi script chạy / triển khai trên Linux
+!*.sh
+
+# Theo dõi file SQL (schema, migration, seed data...)
+!*.sql
+
+# Theo dõi Docker (nếu dùng để deploy)
+!Dockerfile
+!docker-compose.yml
+!docker-compose.yaml
+!.dockerignore
+
+# Theo dõi tài liệu
+!README*
+
+# Luôn theo dõi chính file .gitignore
+!.gitignore
+!.gitkeep
+
+# Bỏ qua môi trường ảo và cache
+.venv/
+venv/
+_build_output/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Bỏ qua file môi trường thật (chứa secret) — không đồng bộ
+.env

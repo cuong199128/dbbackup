@@ -1,0 +1,2 @@
+# Chỉ cần khi build file thực thi bằng packaging/build.py, không cần để chạy app
+pyinstaller>=6.6
