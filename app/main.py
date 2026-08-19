@@ -9,6 +9,7 @@ from app.config import ConfigStore
 from app.core.drive_client import DriveClient
 from app.core.history_store import HistoryStore
 from app.core.scheduler import BackupScheduler
+from app.core.single_instance import SingleInstanceGuard
 from app.gui.main_window import MainWindow
 from app.gui.tray import TrayIcon
 from app.gui.icons import app_icon
@@ -35,6 +36,15 @@ def main() -> int:
     app.setQuitOnLastWindowClosed(False)  # tray keeps it alive when the window is closed
     app.setWindowIcon(app_icon())
 
+    # Chống mở 2 app: phải kiểm tra ngay sau khi có QApplication (cần cho
+    # QSharedMemory/QLocalServer) và TRƯỚC khi tạo bất kỳ cửa sổ/scheduler
+    # nào — nếu đã có phiên bản khác chạy, tiến trình này chỉ nhắn "hiện
+    # cửa sổ lên" cho phiên bản đó rồi thoát ngay, không khởi tạo gì thêm.
+    guard = SingleInstanceGuard()
+    if guard.is_already_running():
+        guard.notify_running_instance(request_show=not background)
+        return 0
+
     config_store = ConfigStore()
     history = HistoryStore()
     history_deleted = history.trim_old()  # dọn bớt lịch sử quá cũ, không giới hạn cứng như log file
@@ -47,6 +57,12 @@ def main() -> int:
     tray = TrayIcon(app, window, scheduler, config_store)
     window.set_tray(tray)
     tray.show()
+
+    # Khi có tiến trình thứ 2 bị chặn bởi guard và gửi yêu cầu "hiện cửa sổ
+    # lên", tín hiệu này chạy trên GUI thread (do QLocalServer nằm trong
+    # cùng event loop) nên có thể gọi thẳng vào Qt widget, không cần bridge
+    # thread-safe như với scheduler.
+    guard.show_requested.connect(lambda: (window.showNormal(), window.raise_(), window.activateWindow()))
 
     bridge = _SchedulerBridge()
     bridge.backup_finished.connect(window.on_backup_finished, Qt.ConnectionType.QueuedConnection)

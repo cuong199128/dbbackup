@@ -176,3 +176,19 @@ Windows) để tạo shortcut Startup; trên Linux không cần thêm gì, chỉ
   (tab Lịch sử) cũng được dọn bớt tự động khi khởi động app
   (`HistoryStore.trim_old`, mặc định giữ các bản ghi trong 180 ngày, không
   bao giờ xóa xuống dưới 500 bản ghi gần nhất).
+
+## Chống mở 2 phiên bản app cùng lúc (single-instance)
+
+Có. `app/core/single_instance.py` dùng `QSharedMemory` + `QLocalServer` của
+Qt (không cần thư viện thêm, hoạt động giống nhau trên Windows và Ubuntu):
+
+- Mở app lần 2 bằng cách bấm icon/shortcut như bình thường → tiến trình mới
+  phát hiện đã có phiên bản đang chạy, gửi yêu cầu qua IPC để phiên bản đó
+  tự hiện cửa sổ lên (`showNormal + raise_ + activateWindow`), rồi thoát
+  ngay — không tạo thêm scheduler/tray/cửa sổ thứ hai.
+- Autostart chạy `--background` khi app đã đang chạy sẵn (ví dụ user vừa mở
+  tay app, rồi máy lại kích hoạt autostart do một tác vụ khác) → thoát êm,
+  không tự bật cửa sổ lên làm phiền.
+- Có xử lý trường hợp hiếm trên Linux: tiến trình trước bị `kill -9` để sót
+  shared memory/socket → lần khởi động sau tự phát hiện (ping IPC không có
+  phản hồi) và dọn rác thay vì bị kẹt vĩnh viễn không mở lại được app.
