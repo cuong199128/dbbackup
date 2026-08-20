@@ -16,15 +16,30 @@ import logging.handlers
 import sys
 import threading
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Deque, List, Type
 
 from app.config import app_data_dir
+from app.timeutil import VN_TZ
 
 LOG_NAME = "dbbackup"
 LOG_MAX_BYTES = 5 * 1024 * 1024
 LOG_BACKUP_COUNT = 5
+
+
+class VNFormatter(logging.Formatter):
+    """Luôn in thời gian log theo giờ Việt Nam (UTC+7), bất kể múi giờ hệ
+    thống đang đặt là gì. logging.Formatter mặc định dùng time.localtime()
+    (giờ hệ thống), nên nếu máy lỡ đặt sai múi giờ (vd. UTC), log sẽ lệch
+    giờ theo — dùng record.created (epoch, luôn đúng) + zoneinfo cố định
+    VN để tránh việc đó.
+    """
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        dt = datetime.fromtimestamp(record.created, tz=VN_TZ)
+        return dt.strftime(datefmt) if datefmt else dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class RingBufferHandler(logging.Handler):
@@ -97,7 +112,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
         return logger  # already configured (e.g. re-imported)
 
     logger.setLevel(level)
-    fmt = logging.Formatter(
+    fmt = VNFormatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )

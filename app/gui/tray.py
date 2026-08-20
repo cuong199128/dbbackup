@@ -4,6 +4,10 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from app.gui.icons import app_icon
+from app.logger import get_logger
+from app.platform import autostart
+
+log = get_logger("tray")
 
 
 class TrayIcon(QSystemTrayIcon):
@@ -40,12 +44,37 @@ class TrayIcon(QSystemTrayIcon):
         self._menu.addMenu(self._backup_now_menu)
 
         self._menu.addSeparator()
+        autostart_action = QAction("Khởi động cùng Windows", self._menu)
+        autostart_action.setCheckable(True)
+        try:
+            autostart_action.setChecked(autostart.is_enabled())
+        except Exception:
+            autostart_action.setChecked(self._config.get_setting("start_with_os", True))
+        autostart_action.toggled.connect(self._on_toggle_autostart)
+        self._menu.addAction(autostart_action)
+
+        self._menu.addSeparator()
         quit_action = QAction("Thoát", self._menu)
         quit_action.triggered.connect(self._app.quit)
         self._menu.addAction(quit_action)
 
     def refresh(self) -> None:
         self._rebuild_menu()
+
+    def _on_toggle_autostart(self, checked: bool) -> None:
+        self._config.set_setting("start_with_os", checked)
+        try:
+            if checked:
+                autostart.enable()
+            else:
+                autostart.disable()
+        except Exception:
+            log.exception("Không thể %s khởi động cùng hệ thống", "bật" if checked else "tắt")
+            self.notify(
+                "Khởi động cùng Windows",
+                f"Không thể {'bật' if checked else 'tắt'} khởi động cùng hệ thống. Xem tab Nhật ký để biết chi tiết.",
+                is_error=True,
+            )
 
     def _on_activated(self, reason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:

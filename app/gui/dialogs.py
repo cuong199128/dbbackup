@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from apscheduler.triggers.cron import CronTrigger
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
+from app.core.cron_describe import describe_cron
 from app.core.drive_client import DriveFileInfo
 from app.models import DatabaseConfig, RetentionPolicy
 
@@ -55,7 +57,13 @@ class DatabaseEditDialog(QDialog):
 
         self.cron_edit = QLineEdit()
         self.cron_edit.setPlaceholderText("cron: phút giờ ngày tháng thứ")
+        self.cron_edit.textChanged.connect(self._update_cron_hint)
         layout.addRow("Biểu thức cron:", self.cron_edit)
+
+        self.cron_hint = QLabel()
+        self.cron_hint.setWordWrap(True)
+        self.cron_hint.setStyleSheet("color: #666; font-style: italic;")
+        layout.addRow("", self.cron_hint)
 
         self.enabled_check = QCheckBox("Bật")
         self.enabled_check.setChecked(True)
@@ -66,9 +74,33 @@ class DatabaseEditDialog(QDialog):
         layout.addRow(self.keep_latest_check)
 
         self.vacuum_check = QCheckBox("VACUUM bản snapshot trước khi tải lên")
-        self.analyze_check = QCheckBox("ANALYZE bản snapshot trước khi tải lên")
+        vacuum_tip = (
+            "VACUUM sẽ nén lại file SQLite: dọn dẹp các trang trống do dữ liệu bị xóa/sửa "
+            "để lại, giúp file backup nhỏ gọn hơn (đôi khi giảm đáng kể dung lượng). Đổi lại, "
+            "thao tác này cần đọc/ghi lại toàn bộ database nên có thể mất thêm thời gian với "
+            "file lớn. Chỉ áp dụng trên bản snapshot tạm dùng để backup, không đụng đến file "
+            "gốc đang chạy."
+        )
+        self.vacuum_check.setToolTip(vacuum_tip)
         layout.addRow(self.vacuum_check)
+        vacuum_hint = QLabel(vacuum_tip)
+        vacuum_hint.setWordWrap(True)
+        vacuum_hint.setStyleSheet("color: #666; font-style: italic;")
+        layout.addRow("", vacuum_hint)
+
+        self.analyze_check = QCheckBox("ANALYZE bản snapshot trước khi tải lên")
+        analyze_tip = (
+            "ANALYZE sẽ cập nhật lại số liệu thống kê về dữ liệu (số hàng, phân bố giá trị...) "
+            "mà SQLite dùng để lên kế hoạch truy vấn. Không làm thay đổi dung lượng file, nhưng "
+            "giúp các truy vấn chạy nhanh hơn sau khi khôi phục bản backup này, đặc biệt nếu "
+            "database đã lâu chưa được ANALYZE hoặc dữ liệu thay đổi nhiều."
+        )
+        self.analyze_check.setToolTip(analyze_tip)
         layout.addRow(self.analyze_check)
+        analyze_hint = QLabel(analyze_tip)
+        analyze_hint.setWordWrap(True)
+        analyze_hint.setStyleSheet("color: #666; font-style: italic;")
+        layout.addRow("", analyze_hint)
 
         self.keep_count_spin = QSpinBox()
         self.keep_count_spin.setRange(0, 10000)
@@ -97,6 +129,13 @@ class DatabaseEditDialog(QDialog):
         if preset is not None:
             self.cron_edit.setText(preset)
         self.cron_edit.setEnabled(preset is None)
+
+    def _update_cron_hint(self, text: str) -> None:
+        text = text.strip()
+        if not text:
+            self.cron_hint.setText("")
+            return
+        self.cron_hint.setText("📅 " + describe_cron(text))
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -129,6 +168,15 @@ class DatabaseEditDialog(QDialog):
             return
         if not self.cron_edit.text().strip():
             QMessageBox.warning(self, "Thiếu thông tin", "Vui lòng nhập biểu thức cron.")
+            return
+        try:
+            CronTrigger.from_crontab(self.cron_edit.text().strip())
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(
+                self, "Biểu thức cron không hợp lệ",
+                f"Không thể dùng biểu thức cron này: {e}\n\n"
+                "Định dạng đúng: phút giờ ngày tháng thứ (vd. 0 */6 * * * = mỗi 6 giờ).",
+            )
             return
         self.accept()
 

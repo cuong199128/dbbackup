@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
+
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem,
+    QMessageBox, QPushButton,
     QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -17,6 +19,7 @@ from app.gui.dialogs import CredentialsMissingDialog, DatabaseEditDialog, Restor
 from app.gui.icons import app_icon
 from app.logger import clear_log_files, get_logger, get_ring_handler
 from app.models import DatabaseConfig
+from app.timeutil import format_vn_iso, now_vn, to_vn
 
 log = get_logger("main_window")
 
@@ -39,6 +42,7 @@ class MainWindow(QMainWindow):
         self._drive = drive
         self._scheduler = scheduler
         self._tray = None  # gán bởi main.py sau khi tạo tray
+        self._log_grouped_cache: dict[str, list[str]] | None = None
 
         self._tabs = QTabWidget()
         self.setCentralWidget(self._tabs)
@@ -81,7 +85,6 @@ class MainWindow(QMainWindow):
         self.db_tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.db_tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.db_tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
-        layout.addWidget(self.db_tree)
 
         btn_row = QHBoxLayout()
         self.add_btn = QPushButton("Thêm database")
@@ -104,6 +107,8 @@ class MainWindow(QMainWindow):
                   self.restore_btn, self.expand_btn, self.collapse_btn):
             btn_row.addWidget(b)
         layout.addLayout(btn_row)
+
+        layout.addWidget(self.db_tree)
 
         self._tabs.addTab(tab, "Database")
         self._update_login_status()
@@ -291,7 +296,7 @@ class MainWindow(QMainWindow):
                 ("VACUUM / ANALYZE", f"{'Bật' if db.vacuum_on_backup else 'Tắt'} / {'Bật' if db.analyze_on_backup else 'Tắt'}"),
                 ("Retention", f"{db.retention.keep_count or 'tắt'} bản gần nhất, "
                               f"{db.retention.keep_days or 'tắt'} ngày"),
-                ("Backup gần nhất", db.last_backup_iso or "-"),
+                ("Backup gần nhất", format_vn_iso(db.last_backup_iso)),
             ]
             for label, value in rows:
                 child = QTreeWidgetItem([label, str(value)])
@@ -308,33 +313,101 @@ class MainWindow(QMainWindow):
     def _build_history_tab(self) -> None:
         tab = QWidget()
         layout = QVBoxLayout(tab)
+
+        btn_row = QHBoxLayout()
         refresh_btn = QPushButton("Làm mới")
         refresh_btn.clicked.connect(self._refresh_history_table)
-        layout.addWidget(refresh_btn)
+        hist_expand_btn = QPushButton("Mở rộng tất cả")
+        hist_collapse_btn = QPushButton("Thu gọn tất cả")
+        btn_row.addWidget(refresh_btn)
+        btn_row.addWidget(hist_expand_btn)
+        btn_row.addWidget(hist_collapse_btn)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
 
-        self.history_table = QTableWidget(0, 6)
-        self.history_table.setHorizontalHeaderLabels(
-            ["Bắt đầu", "Ứng dụng", "Trạng thái", "Kích thước", "Đường dẫn trên Drive", "Ghi chú"]
+        self.history_tree = QTreeWidget()
+        self.history_tree.setColumnCount(5)
+        self.history_tree.setHeaderLabels(
+            ["Giờ / Ứng dụng", "Trạng thái", "Kích thước", "Đường dẫn trên Drive", "Ghi chú"]
         )
-        self.history_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        layout.addWidget(self.history_table)
+        self.history_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.history_tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.history_tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        layout.addWidget(self.history_tree)
+
+        hist_expand_btn.clicked.connect(self.history_tree.expandAll)
+        hist_collapse_btn.clicked.connect(self.history_tree.collapseAll)
 
         self._tabs.addTab(tab, "Lịch sử")
 
+    def _parse_history_local_dt(self, iso_str: str):
+        """started_iso được lưu dạng ISO UTC (xem backup_service.py); quy
+        đổi sang giờ VN để nhóm theo đúng ngày lịch VN, nhất quán với cách
+        hiển thị dùng ở nơi khác (format_vn_iso, tên thư mục Drive...).
+        """
+        if not iso_str:
+            return None
+        try:
+            dt = datetime.fromisoformat(iso_str)
+        except ValueError:
+            return None
+        return to_vn(dt)
+
+    def _add_history_group(self, tree_parent_data: str, label: str, rows: list, expanded_keys: set) -> None:
+        group_item = QTreeWidgetItem([label])
+        group_item.setData(0, Qt.ItemDataRole.UserRole, tree_parent_data)
+        group_item.setFirstColumnSpanned(True)
+        for row_label, r in rows:
+            text = row_label
+            if r.is_restore_safety_copy:
+                text += " (bản an toàn trước khi khôi phục)"
+            child = QTreeWidgetItem([
+                text,
+                self._status_text(r.status),
+                str(r.size_bytes or "-"),
+                r.drive_path or "-",
+                r.message,
+            ])
+            child.setForeground(1, QBrush(self._status_color(r.status)))
+            group_item.addChild(child)
+        self.history_tree.addTopLevelItem(group_item)
+        if tree_parent_data in expanded_keys:
+            group_item.setExpanded(True)
+
     def _refresh_history_table(self) -> None:
         records = self._history.list_all()
-        self.history_table.setRowCount(len(records))
-        for row, r in enumerate(records):
-            self.history_table.setItem(row, 0, QTableWidgetItem(r.started_iso))
-            label = r.app_name + (" (bản an toàn trước khi khôi phục)" if r.is_restore_safety_copy else "")
-            self.history_table.setItem(row, 1, QTableWidgetItem(label))
-            status_item = QTableWidgetItem(self._status_text(r.status))
-            status_item.setForeground(QBrush(self._status_color(r.status)))
-            self.history_table.setItem(row, 2, status_item)
-            self.history_table.setItem(row, 3, QTableWidgetItem(str(r.size_bytes or "-")))
-            self.history_table.setItem(row, 4, QTableWidgetItem(r.drive_path or "-"))
-            self.history_table.setItem(row, 5, QTableWidgetItem(r.message))
+
+        grouped: dict[str, list] = {}
+        undated: list = []
+        for r in records:
+            local_dt = self._parse_history_local_dt(r.started_iso)
+            if local_dt is None:
+                undated.append(r)
+                continue
+            grouped.setdefault(local_dt.date().isoformat(), []).append((local_dt, r))
+
+        # Giữ trạng thái mở rộng/thu gọn hiện có qua mỗi lần làm mới. Mặc
+        # định LUÔN thu gọn (kể cả ngày mới nhất) — người dùng tự bấm để
+        # xem chi tiết khi cần, thay vì cả danh sách hiện phẳng ra hết.
+        expanded_keys = {
+            self.history_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
+            for i in range(self.history_tree.topLevelItemCount())
+            if self.history_tree.topLevelItem(i).isExpanded()
+        }
+
+        self.history_tree.clear()
+        for date_key in sorted(grouped.keys(), reverse=True):
+            entries = grouped[date_key]
+            day = date.fromisoformat(date_key)
+            label = f"{self._vn_date_label(day)} ({len(entries)} bản ghi)"
+            rows = [(local_dt.strftime("%H:%M:%S") + "  " + r.app_name, r) for local_dt, r in entries]
+            self._add_history_group(date_key, label, rows, expanded_keys)
+
+        if undated:
+            rows = [(r.app_name, r) for r in undated]
+            self._add_history_group("?", f"Không rõ ngày ({len(undated)} bản ghi)", rows, expanded_keys)
+
+
 
     # ------------------------------------------------------------ Tab Nhật ký
     def _build_logs_tab(self) -> None:
@@ -344,26 +417,102 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         clear_btn = QPushButton("Xóa log")
         clear_btn.clicked.connect(self._on_clear_logs)
+        log_expand_btn = QPushButton("Mở rộng tất cả")
+        log_collapse_btn = QPushButton("Thu gọn tất cả")
         btn_row.addWidget(clear_btn)
+        btn_row.addWidget(log_expand_btn)
+        btn_row.addWidget(log_collapse_btn)
         btn_row.addStretch(1)
         btn_row.addWidget(QLabel("Log tự động xoá bớt khi vượt quá 5MB x 5 file (giữ khoảng 30MB gần nhất)."))
         layout.addLayout(btn_row)
 
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        layout.addWidget(self.log_view)
+        self.log_tree = QTreeWidget()
+        self.log_tree.setColumnCount(1)
+        self.log_tree.setHeaderHidden(True)
+        self.log_tree.setUniformRowHeights(True)
+        layout.addWidget(self.log_tree)
+
+        log_expand_btn.clicked.connect(self.log_tree.expandAll)
+        log_collapse_btn.clicked.connect(self.log_tree.collapseAll)
+
         self._tabs.addTab(tab, "Nhật ký")
 
     def _on_clear_logs(self) -> None:
+        confirm = QMessageBox.question(
+            self, "Xóa log",
+            "Xóa toàn bộ file log trên đĩa và nhật ký đang hiển thị? Thao tác này không thể hoàn tác.",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
         clear_log_files()
+        self._log_grouped_cache = None  # ép rebuild kể cả khi rỗng == rỗng
         self._refresh_logs()
 
+    def _vn_date_label(self, day: date) -> str:
+        today = now_vn().date()
+        if day == today:
+            return f"Hôm nay — {day.strftime('%d/%m/%Y')}"
+        if day == today - timedelta(days=1):
+            return f"Hôm qua — {day.strftime('%d/%m/%Y')}"
+        return day.strftime("%d/%m/%Y")
+
+    def _log_entry_color(self, first_line: str) -> QColor | None:
+        if "[CRITICAL]" in first_line or "[ERROR]" in first_line:
+            return COLOR_FAILED
+        if "[WARNING]" in first_line:
+            return QColor(200, 140, 0)
+        return None
+
     def _refresh_logs(self) -> None:
-        lines = get_ring_handler().snapshot()
-        text = "\n".join(lines[-1000:])
-        if text != self.log_view.toPlainText():
-            self.log_view.setPlainText(text)
-            self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
+        # Mỗi phần tử trong ring buffer là 1 dòng log đã format sẵn
+        # "YYYY-MM-DD HH:MM:SS [LEVEL] logger: message" (giờ VN, xem
+        # VNFormatter trong logger.py) — có thể kèm nhiều dòng traceback
+        # nối phía sau nếu log kèm exc_info.
+        lines = get_ring_handler().snapshot()[-2000:]
+        grouped: dict[str, list[str]] = {}
+        for entry in lines:
+            date_key = entry[:10] if len(entry) >= 10 and entry[4] == "-" and entry[7] == "-" else "?"
+            grouped.setdefault(date_key, []).append(entry)
+
+        if grouped == self._log_grouped_cache:
+            return
+        self._log_grouped_cache = grouped
+
+        # Giữ lại trạng thái mở rộng/thu gọn của người dùng qua mỗi lần
+        # làm mới (log tự refresh mỗi 2 giây). Mặc định LUÔN thu gọn — kể
+        # cả nhóm ngày mới nhất — người dùng tự bấm để xem khi cần.
+        expanded_dates = {
+            self.log_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
+            for i in range(self.log_tree.topLevelItemCount())
+            if self.log_tree.topLevelItem(i).isExpanded()
+        }
+
+        self.log_tree.clear()
+        for date_key in sorted(grouped.keys(), reverse=True):
+            entries = grouped[date_key]
+            try:
+                day = date.fromisoformat(date_key)
+                label = f"{self._vn_date_label(day)} ({len(entries)} dòng)"
+            except ValueError:
+                label = f"{date_key} ({len(entries)} dòng)"
+
+            day_item = QTreeWidgetItem([label])
+            day_item.setData(0, Qt.ItemDataRole.UserRole, date_key)
+            for entry in entries:
+                entry_lines = entry.split("\n")
+                child = QTreeWidgetItem([entry_lines[0]])
+                color = self._log_entry_color(entry_lines[0])
+                if color is not None:
+                    child.setForeground(0, QBrush(color))
+                for extra in entry_lines[1:]:
+                    child.addChild(QTreeWidgetItem([extra]))
+                day_item.addChild(child)
+            self.log_tree.addTopLevelItem(day_item)
+
+            if date_key in expanded_dates:
+                day_item.setExpanded(True)
+
+
 
     # ---------------------------------------------------------- lifecycle
     def on_backup_finished(self) -> None:

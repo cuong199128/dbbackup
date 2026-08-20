@@ -14,6 +14,33 @@ from app.gui.main_window import MainWindow
 from app.gui.tray import TrayIcon
 from app.gui.icons import app_icon
 from app.logger import setup_logging, get_logger, install_excepthook
+from app.platform import autostart
+
+
+def _sync_autostart(config_store: ConfigStore, log) -> None:
+    """Đồng bộ trạng thái khởi động cùng hệ thống với cài đặt đã lưu
+    (`start_with_os`, mặc định BẬT).
+
+    Project này không có installer riêng (không có setup.exe kiểu Inno
+    Setup/MSI) — bước "cài đặt" trong thực tế chính là lần đầu chạy file
+    .exe đã build bằng packaging/build.py. Trước đây `start_with_os` chỉ
+    là 1 giá trị nằm im trong config.json, không có chỗ nào thật sự gọi
+    `autostart.enable()`, nên app KHÔNG tự thêm vào khởi động cùng Windows
+    dù cài đặt mặc định là True. Gọi hàm này ngay khi khởi động đảm bảo
+    lần chạy đầu tiên đó tự đăng ký khởi động cùng hệ thống luôn, đồng thời
+    những lần sau tự tắt đi nếu người dùng đã bỏ chọn.
+    """
+    wanted = config_store.get_setting("start_with_os", True)
+    try:
+        currently_enabled = autostart.is_enabled()
+        if wanted and not currently_enabled:
+            autostart.enable()
+            log.info("Đã tự động thêm vào khởi động cùng hệ thống")
+        elif not wanted and currently_enabled:
+            autostart.disable()
+            log.info("Đã tắt khởi động cùng hệ thống theo cài đặt")
+    except Exception:
+        log.exception("Không thể đồng bộ trạng thái khởi động cùng hệ thống")
 
 
 class _SchedulerBridge(QObject):
@@ -47,6 +74,7 @@ def main() -> int:
         return 0
 
     config_store = ConfigStore()
+    _sync_autostart(config_store, log)
     history = HistoryStore()
     history_deleted = history.trim_old()  # dọn bớt lịch sử quá cũ, không giới hạn cứng như log file
     if history_deleted:
