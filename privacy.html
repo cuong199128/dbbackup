@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Chính sách quyền riêng tư - Database Backup Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #222; }
+    h1 { color: #1a73e8; }
+    footer { margin-top: 40px; font-size: 0.9em; color: #666; }
+    a { color: #1a73e8; }
+  </style>
+</head>
+<body>
+  <h1>Chính sách quyền riêng tư</h1>
+  <p><em>Cập nhật lần cuối: Tháng 8, 2026</em></p>
+
+  <p>
+    Database Backup Manager ("ứng dụng") tôn trọng quyền riêng tư của người dùng.
+    Chính sách này giải thích cách ứng dụng thu thập, sử dụng và bảo vệ dữ liệu.
+  </p>
+
+  <h2>1. Dữ liệu ứng dụng truy cập</h2>
+  <p>
+    Ứng dụng yêu cầu quyền truy cập Google Drive của người dùng (thông qua OAuth 2.0
+    do Google cung cấp) với mục đích duy nhất là: tải lên các file backup database
+    do chính người dùng tạo ra vào thư mục Google Drive của họ.
+  </p>
+
+  <h2>2. Cách dữ liệu được sử dụng</h2>
+  <ul>
+    <li>File backup chỉ được tải lên Google Drive của người dùng, không gửi tới bất kỳ máy chủ nào của bên phát triển ứng dụng.</li>
+    <li>Ứng dụng không thu thập, lưu trữ hay truyền dữ liệu database của người dùng ra bên ngoài máy tính cá nhân và tài khoản Google Drive của chính họ.</li>
+    <li>Thông tin cấu hình (lịch backup, đường dẫn database, cài đặt) được lưu cục bộ trên máy tính của người dùng.</li>
+  </ul>
+
+  <h2>3. Chia sẻ dữ liệu với bên thứ ba</h2>
+  <p>
+    Ứng dụng <strong>không</strong> chia sẻ, bán, hay cung cấp dữ liệu người dùng cho bất kỳ
+    bên thứ ba nào. Dữ liệu chỉ di chuyển giữa máy tính người dùng và tài khoản Google Drive
+    của chính họ, thông qua Google API chính thức.
+  </p>
+
+  <h2>4. Lưu trữ token đăng nhập</h2>
+  <p>
+    Token OAuth (dùng để duy trì đăng nhập Google Drive) được lưu cục bộ, mã hoá trên
+    máy tính của người dùng, không được gửi đi bất kỳ đâu khác.
+  </p>
+
+  <h2>5. Quyền của người dùng</h2>
+  <p>
+    Người dùng có thể thu hồi quyền truy cập Google Drive của ứng dụng bất kỳ lúc nào tại
+    <a href="https://myaccount.google.com/permissions" target="_blank">Google Account – Third-party access</a>.
+  </p>
+
+  <h2>6. Liên hệ</h2>
+  <p>Mọi thắc mắc về chính sách này, vui lòng liên hệ qua email hỗ trợ đã đăng ký trên ứng dụng.</p>
+
+  <footer>
+    <a href="index.html">← Về trang chủ</a>
+  </footer>
+</body>
+</html>
